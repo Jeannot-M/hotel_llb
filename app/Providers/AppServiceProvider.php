@@ -1,0 +1,42 @@
+<?php
+
+namespace App\Providers;
+
+use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Facades\View;
+
+use Illuminate\Support\Facades\Gate;
+use App\Models\User;
+
+class AppServiceProvider extends ServiceProvider
+{
+    /**
+     * Register any application services.
+     */
+    public function register(): void
+    {
+        //
+    }
+
+    /**
+     * Bootstrap any application services.
+     */
+    public function boot(): void
+    {
+        View::addNamespace('layouts', resource_path('views/components/layouts'));
+
+        // Define Security Gates for Roles
+        Gate::define('access-admin', function (User $user) {
+            return $user->isAdmin();
+        });
+
+        Gate::define('access-accounting', function (User $user) {
+            return $user->isAccountant();
+        });
+
+        Gate::define('access-hotel', function (User $user) {
+            return $user->isReceptionist();
+        });
+    }
+}
+

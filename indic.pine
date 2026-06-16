@@ -1,0 +1,450 @@
+//@version=5
+indicator("SMC Market Structure - Pivot MSS/BOS & FVG with Liquidity", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+
+// --- PARAMÈTRES PERSONNALISABLES ---
+
+// 1. Groupe Points Pivots (Swing High/Low)
+lb = input.int(defval = 3, title="Left Bars (Swing)", group="Pivots Settings")
+rb = input.int(defval = 3, title="Right Bars (Swing)", group="Pivots Settings")
+ph_color = input.color(defval = color.red, title="Pivot High Point Color", group="Pivots Settings")
+pl_color = input.color(defval = color.lime, title="Pivot Low Point Color", group="Pivots Settings")
+
+// 2. Groupe Market Structure (MSS / BOS)
+confirm_by_close = input.bool(defval = true, title="Confirm Break with Candle Close", group="Market Structure Settings")
+
+show_mss = input.bool(defval = true, title="Show Market Structure Shift (MSS)", group="Market Structure Settings")
+mss_bull_color = input.color(defval = color.green, title="Bullish MSS Color", group="Market Structure Settings")
+mss_bear_color = input.color(defval = color.red, title="Bearish MSS Color", group="Market Structure Settings")
+
+show_bos = input.bool(defval = true, title="Show Break of Structure (BOS)", group="Market Structure Settings")
+bos_bull_color = input.color(defval = color.green, title="Bullish BOS Color", group="Market Structure Settings")
+bos_bear_color = input.color(defval = color.red, title="Bearish BOS Color", group="Market Structure Settings")
+
+// 3. Groupe Fair Value Gaps (BISI / SIBI)
+show_fvgs = input.bool(defval = true, title="Show Fair Value Gaps (BISI/SIBI)", group="Fair Value Gaps (FVG) Settings")
+hide_mitigated_fvg = input.bool(defval = false, title="Hide Mitigated FVG (Otherwise fade)", group="Fair Value Gaps (FVG) Settings")
+bisi_color = input.color(defval = color.new(color.green, 93), title="BISI Color (Bullish FVG)", group="Fair Value Gaps (FVG) Settings")
+sibi_color = input.color(defval = color.new(color.red, 93), title="SIBI Color (Bearish FVG)", group="Fair Value Gaps (FVG) Settings")
+show_ifvgs = input.bool(defval = true, title="Show Inverted Gaps (iFVG)", group="Fair Value Gaps (FVG) Settings")
+ifvg_bull_color = input.color(defval = color.new(color.teal, 90), title="Bullish iFVG Color (SIBI Inverted)", group="Fair Value Gaps (FVG) Settings")
+ifvg_bear_color = input.color(defval = color.new(color.orange, 90), title="Bearish iFVG Color (BISI Inverted)", group="Fair Value Gaps (FVG) Settings")
+
+// 4. Groupe Liquidity & Daily Levels (PDH/PDL, BSL/SSL)
+show_pdh = input.bool(defval = true, title="Show Previous Day High (PDH)", group="Liquidity & Daily Levels")
+show_pdl = input.bool(defval = true, title="Show Previous Day Low (PDL)", group="Liquidity & Daily Levels")
+pdh_pdl_color = input.color(defval = color.gray, title="PDH/PDL Color", group="Liquidity & Daily Levels")
+
+show_bsl = input.bool(defval = true, title="Show Buyside Liquidity (BSL)", group="Liquidity & Daily Levels")
+show_ssl = input.bool(defval = true, title="Show Sellside Liquidity (SSL)", group="Liquidity & Daily Levels")
+bsl_color = input.color(defval = color.red, title="BSL Color", group="Liquidity & Daily Levels")
+ssl_color = input.color(defval = color.red, title="SSL Color", group="Liquidity & Daily Levels")
+
+// 5. Groupe HTF Candle Overlay (CRT)
+show_htf_candles = input.bool(defval = true, title="Show HTF Candles (CRT)", group="HTF Candle Overlay (CRT)")
+custom_htf = input.string(defval = "Auto", title="HTF Resolution", options=["Auto", "60", "240", "D", "W"], group="HTF Candle Overlay (CRT)")
+htf_bull_color = input.color(defval = color.new(#00c3a5, 20), title="HTF Bullish Candle Color", group="HTF Candle Overlay (CRT)")
+htf_bear_color = input.color(defval = color.new(#ff5252, 20), title="HTF Bearish Candle Color", group="HTF Candle Overlay (CRT)")
+htf_wick_color = input.color(defval = color.new(color.gray, 30), title="HTF Wick Color", group="HTF Candle Overlay (CRT)")
+
+// 6. Groupe CRT Pattern (Candle Range Theory) — H1
+show_crt = input.bool(defval = true, title="Show CRT Pattern (H1)", group="CRT Pattern (H1)")
+crt_bull_color = input.color(defval = color.new(color.teal, 0), title="Bullish CRT Color", group="CRT Pattern (H1)")
+crt_bear_color = input.color(defval = color.new(color.orange, 0), title="Bearish CRT Color", group="CRT Pattern (H1)")
+show_crt_conf = input.bool(defval = true, title="Show CRT Confirmation (Entry Swing)", group="CRT Pattern (H1)")
+conf_color = input.color(defval = color.new(color.yellow, 0), title="Confirmation Swing Color", group="CRT Pattern (H1)")
+
+// Définition du type FVG
+type FVG
+    box fvg_box
+    float top
+    float bottom
+    bool is_bisi
+    bool is_inverted
+
+// Tableau pour stocker les FVG actifs
+var FVG[] active_fvgs = array.new<FVG>()
+
+// --- CALCUL MANUEL ET ULTRA-ROBUSTE DE PDH ET PDL ---
+var float cur_day_high = na
+var float cur_day_low = na
+var float prev_day_high = na
+var float prev_day_low = na
+var int cur_day_high_idx = na
+var int cur_day_low_idx = na
+var int prev_day_high_idx = na
+var int prev_day_low_idx = na
+
+new_day = nz(ta.change(time("D"))) != 0
+
+if new_day
+    prev_day_high := cur_day_high
+    prev_day_low  := cur_day_low
+    prev_day_high_idx := cur_day_high_idx
+    prev_day_low_idx  := cur_day_low_idx
+    
+    cur_day_high  := high
+    cur_day_low   := low
+    cur_day_high_idx := bar_index
+    cur_day_low_idx  := bar_index
+else
+    if na(cur_day_high) or high > cur_day_high
+        cur_day_high := high
+        cur_day_high_idx := bar_index
+    if na(cur_day_low) or low < cur_day_low
+        cur_day_low := low
+        cur_day_low_idx := bar_index
+
+pdh = prev_day_high
+pdl = prev_day_low
+pdh_x = prev_day_high_idx
+pdl_x = prev_day_low_idx
+
+var int day_start_idx = 0
+if new_day
+    day_start_idx := bar_index
+
+// --- OFFSET DYNAMIQUE BASÉ SUR L'ATR (s'adapte à toutes les unités de temps et actifs) ---
+float offset_val = nz(ta.atr(14) * 0.25, close * 0.0001)
+
+// Variables pour la confirmation du CRT
+var bool awaiting_bull_conf = false
+var bool awaiting_bear_conf = false
+var int  last_crt_time = 0
+var float crt_inval_level = na
+
+// Détection des sommets et des creux (Pivots)
+ph = ta.pivothigh(high, lb, rb)
+pl = ta.pivotlow(low, lb, rb)
+
+// Invalidation : Si le prix dépasse le niveau extrême du CRT, on annule tout immédiatement
+if awaiting_bull_conf and (low < crt_inval_level or close < crt_inval_level)
+    awaiting_bull_conf := false
+if awaiting_bear_conf and (high > crt_inval_level or close > crt_inval_level)
+    awaiting_bear_conf := false
+
+// Logique de confirmation CRT : le swing doit être STRICTEMENT après le CRT H1 ET dans le bon sens
+bool is_conf_ph = false
+bool is_conf_pl = false
+
+if show_crt_conf
+    // Confirmation Bullish : Nouveau creux (PL) qui est PLUS HAUT que le CRT Low
+    if awaiting_bull_conf and not na(pl) and time[rb] >= last_crt_time
+        if pl >= crt_inval_level
+            is_conf_pl := true
+        awaiting_bull_conf := false // On arrête d'attendre dans tous les cas après le 1er swing suivant
+
+    // Confirmation Bearish : Nouveau sommet (PH) qui est PLUS BAS que le CRT High
+    if awaiting_bear_conf and not na(ph) and time[rb] >= last_crt_time
+        if ph <= crt_inval_level
+            is_conf_ph := true
+        awaiting_bear_conf := false // On arrête d'attendre dans tous les cas après le 1er swing suivant
+
+// Affichage des pivots classiques
+plot(ph, style = plot.style_circles, color = is_conf_ph ? conf_color : ph_color, linewidth = 2, offset = -rb)
+plot(pl, style = plot.style_circles, color = is_conf_pl ? conf_color : pl_color, linewidth = 2, offset = -rb)
+
+// Label de confirmation
+if is_conf_ph
+    label.new(bar_index - rb, ph + offset_val, "CONF", color=color(na), textcolor=conf_color, style=label.style_none, size=size.small)
+if is_conf_pl
+    label.new(bar_index - rb, pl - offset_val, "CONF", color=color(na), textcolor=conf_color, style=label.style_none, size=size.small)
+
+// Variables persistantes pour stocker les derniers sommets et creux actifs (BSL et SSL)
+var float last_high_val = na
+var int   last_high_idx = na
+var float last_low_val  = na
+var int   last_low_idx  = na
+
+var int structure_dir = 0
+
+if not na(ph)
+    last_high_val := ph
+    last_high_idx := bar_index - rb
+
+if not na(pl)
+    last_low_val := pl
+    last_low_idx := bar_index - rb
+
+// --- DÉTECTION DES CASSURES (MSS / BOS) — toutes les lignes à 1px ---
+if not na(last_high_val)
+    break_high = confirm_by_close ? (close > last_high_val) : (high > last_high_val)
+    if break_high
+        int center_x = math.round((last_high_idx + bar_index) / 2)
+        if structure_dir <= 0
+            if show_mss
+                line.new(x1 = last_high_idx, y1 = last_high_val, x2 = bar_index, y2 = last_high_val,
+                         color = mss_bull_color, width = 1, style = line.style_dashed)
+                label.new(x = center_x, y = last_high_val + offset_val, text = "MSS",
+                          color = color(na), textcolor = mss_bull_color,
+                          style = label.style_none, size = size.small)
+            structure_dir := 1
+        else
+            if show_bos
+                line.new(x1 = last_high_idx, y1 = last_high_val, x2 = bar_index, y2 = last_high_val,
+                         color = bos_bull_color, width = 1, style = line.style_dotted)
+                label.new(x = center_x, y = last_high_val + offset_val, text = "BOS",
+                          color = color(na), textcolor = bos_bull_color,
+                          style = label.style_none, size = size.small)
+        last_high_val := na
+        last_high_idx := na
+
+if not na(last_low_val)
+    break_low = confirm_by_close ? (close < last_low_val) : (low < last_low_val)
+    if break_low
+        int center_x = math.round((last_low_idx + bar_index) / 2)
+        if structure_dir >= 0
+            if show_mss
+                line.new(x1 = last_low_idx, y1 = last_low_val, x2 = bar_index, y2 = last_low_val,
+                         color = mss_bear_color, width = 1, style = line.style_dashed)
+                label.new(x = center_x, y = last_low_val - offset_val, text = "MSS",
+                          color = color(na), textcolor = mss_bear_color,
+                          style = label.style_none, size = size.small)
+            structure_dir := -1
+        else
+            if show_bos
+                line.new(x1 = last_low_idx, y1 = last_low_val, x2 = bar_index, y2 = last_low_val,
+                         color = bos_bear_color, width = 1, style = line.style_dotted)
+                label.new(x = center_x, y = last_low_val - offset_val, text = "BOS",
+                          color = color(na), textcolor = bos_bear_color,
+                          style = label.style_none, size = size.small)
+        last_low_val := na
+        last_low_idx := na
+
+if show_fvgs
+    if low > high[2] and close[1] > open[1]
+        box b = box.new(left = bar_index - 2, top = low, right = bar_index, bottom = high[2],
+                         bgcolor = bisi_color, border_color = color(na))
+        array.push(active_fvgs, FVG.new(b, low, high[2], true, false))
+        
+    if high < low[2] and close[1] < open[1]
+        box b = box.new(left = bar_index - 2, top = low[2], right = bar_index, bottom = high,
+                         bgcolor = sibi_color, border_color = color(na))
+        array.push(active_fvgs, FVG.new(b, low[2], high, false, false))
+
+if not show_fvgs and array.size(active_fvgs) > 0
+    for i = 0 to array.size(active_fvgs) - 1
+        box.delete(array.get(active_fvgs, i).fvg_box)
+    array.clear(active_fvgs)
+
+if show_fvgs and array.size(active_fvgs) > 0
+    FVG[] temp_fvgs = array.new<FVG>()
+    for i = 0 to array.size(active_fvgs) - 1
+        FVG f = array.get(active_fvgs, i)
+        box.set_right(f.fvg_box, bar_index)
+        
+        bool to_keep = true
+        
+        if not f.is_inverted
+            // Regular FVG: Check for Inversion (Close past the extreme)
+            bool inverted_bull = not f.is_bisi and close > f.top
+            bool inverted_bear = f.is_bisi and close < f.bottom
+            
+            if show_ifvgs and inverted_bull
+                f.is_inverted := true
+                box.set_bgcolor(f.fvg_box, ifvg_bull_color)
+                box.set_text(f.fvg_box, "iFVG")
+                box.set_text_size(f.fvg_box, size.small)
+                box.set_text_color(f.fvg_box, ifvg_bull_color)
+                box.set_text_valign(f.fvg_box, "center")
+                box.set_text_halign(f.fvg_box, "center")
+            else if show_ifvgs and inverted_bear
+                f.is_inverted := true
+                box.set_bgcolor(f.fvg_box, ifvg_bear_color)
+                box.set_text(f.fvg_box, "iFVG")
+                box.set_text_size(f.fvg_box, size.small)
+                box.set_text_color(f.fvg_box, ifvg_bear_color)
+                box.set_text_valign(f.fvg_box, "center")
+                box.set_text_halign(f.fvg_box, "center")
+            else if (not show_ifvgs and inverted_bull) or (not show_ifvgs and inverted_bear)
+                // If iFVGs are disabled, delete it on inversion
+                box.delete(f.fvg_box)
+                to_keep := false
+            else
+                // Normal FVG mitigation (touch)
+                bool mitigated = f.is_bisi ? (low < f.bottom) : (high > f.top)
+                if mitigated
+                    if hide_mitigated_fvg
+                        box.delete(f.fvg_box)
+                        to_keep := false
+                    else
+                        box.set_bgcolor(f.fvg_box, color.new(f.is_bisi ? bisi_color : sibi_color, 98))
+        else
+            // Inverted FVG (iFVG): Check mitigation (touch on opposite side)
+            bool mitigated_ifvg = f.is_bisi ? (high > f.top) : (low < f.bottom)
+            if mitigated_ifvg
+                box.delete(f.fvg_box)
+                to_keep := false
+                
+        if to_keep
+            array.push(temp_fvgs, f)
+            
+    array.clear(active_fvgs)
+    if array.size(temp_fvgs) > 0
+        for i = 0 to array.size(temp_fvgs) - 1
+            array.push(active_fvgs, array.get(temp_fvgs, i))
+
+if array.size(active_fvgs) > 100
+    FVG oldest = array.shift(active_fvgs)
+    if hide_mitigated_fvg
+        box.delete(oldest.fvg_box)
+
+// --- CRT (Candle Range Theory) — Détection ultra-rapide (immédiate après clôture H1) ---
+// On détecte le pattern dès que la bougie H1 ferme, sans attendre la confirmation du pivot complet
+[h1_high, h1_low, h1_open, h1_close, h1_prev_high, h1_prev_low, h1_prev_open, h1_prev_close, h1_is_local_high, h1_is_local_low, h1_is_expansion, h1_t_start, h1_t_end] = request.security(syminfo.tickerid, "60", 
+     [high, low, open, close, high[1], low[1], open[1], close[1],
+      (high[1] > high[2] and high[1] > high[3] and high[1] > high[4]), // La bougie précédente était un sommet local
+      (low[1] < low[2] and low[1] < low[3] and low[1] < low[4]),   // La bougie précédente était un creux local
+      (math.abs(close[1] - open[1]) > ta.sma(math.abs(close - open), 10)[1] and math.abs(close[1] - open[1]) > (high[1] - low[1]) * 0.5), // Expansion: corps > moyenne et corps > 50% du range
+      time[1], time], 
+     lookahead = barmerge.lookahead_on)
+
+// Bearish CRT : Bougie actuelle (Baisse) sweep le high précédent (Hausse), clôture sous le high précédent
+bool h1_c1_bullish = h1_prev_close > h1_prev_open
+bool h1_c2_bearish = h1_close < h1_open
+bool quick_bear_crt = h1_high > h1_prev_high and h1_close < h1_prev_high and h1_c1_bullish and h1_c2_bearish and h1_is_local_high and h1_is_expansion
+
+// Bullish CRT : Bougie actuelle (Hausse) sweep le low précédent (Baisse), clôture au-dessus du low précédent
+bool h1_c1_bearish = h1_prev_close < h1_prev_open
+bool h1_c2_bullish = h1_close > h1_open
+bool quick_bull_crt = h1_low < h1_prev_low and h1_close > h1_prev_low and h1_c1_bearish and h1_c2_bullish and h1_is_local_low and h1_is_expansion
+
+if show_crt and quick_bear_crt and nz(ta.change(h1_t_end)) != 0
+    awaiting_bear_conf := true
+    awaiting_bull_conf := false
+    last_crt_time := h1_t_end + 3600000
+    crt_inval_level := h1_high // Le high du sweep est la barrière
+    line.new(x1 = h1_t_start, y1 = h1_prev_high, x2 = h1_t_end, y2 = h1_prev_high, xloc = xloc.bar_time,
+             color = crt_bear_color, width = 2, style = line.style_solid)
+    label.new(x = math.round((h1_t_start + h1_t_end) / 2), y = h1_prev_high + offset_val, text = "CRT", xloc = xloc.bar_time,
+              color = color(na), textcolor = crt_bear_color,
+              style = label.style_none, size = size.small)
+
+if show_crt and quick_bull_crt and nz(ta.change(h1_t_end)) != 0
+    awaiting_bull_conf := true
+    awaiting_bear_conf := false
+    last_crt_time := h1_t_end + 3600000
+    crt_inval_level := h1_low // Le low du sweep est la barrière
+    line.new(x1 = h1_t_start, y1 = h1_prev_low, x2 = h1_t_end, y2 = h1_prev_low, xloc = xloc.bar_time,
+             color = crt_bull_color, width = 2, style = line.style_solid)
+    label.new(x = math.round((h1_t_start + h1_t_end) / 2), y = h1_prev_low - offset_val, text = "CRT", xloc = xloc.bar_time,
+              color = color(na), textcolor = crt_bull_color,
+              style = label.style_none, size = size.small)
+
+// --- DÉTECTION ET CHARGEMENT DU TIME FRAME SUPÉRIEUR (HTF) ---
+// Règles strictes : M1→M15 | M3→M30 | M5→H1 | M15→H4 | H1→Daily | Autres→Rien
+string htf_res = custom_htf
+bool htf_valid = true
+
+if custom_htf == "Auto"
+    if timeframe.isminutes
+        if timeframe.multiplier == 1
+            htf_res := "15"    // M1  → M15
+        else if timeframe.multiplier == 3
+            htf_res := "30"    // M3  → M30
+        else if timeframe.multiplier == 5
+            htf_res := "60"    // M5  → H1
+        else if timeframe.multiplier == 15
+            htf_res := "240"   // M15 → H4
+        else if timeframe.multiplier == 60
+            htf_res := "D"     // H1  → Daily
+        else
+            htf_valid := false // Autres minutes → Rien
+    else
+        htf_valid := false     // Daily, Weekly, etc. → Rien
+else
+    // Mode manuel : toujours valide
+    htf_valid := true
+
+// Récupération des données HTF globale (obligatoire hors des blocs conditionnels)
+c_open   = request.security(syminfo.tickerid, htf_res, open)
+c_high   = request.security(syminfo.tickerid, htf_res, high)
+c_low    = request.security(syminfo.tickerid, htf_res, low)
+c_close  = request.security(syminfo.tickerid, htf_res, close)
+c_time   = request.security(syminfo.tickerid, htf_res, time)
+c_time_c = request.security(syminfo.tickerid, htf_res, time_close)
+
+p_open   = request.security(syminfo.tickerid, htf_res, open[1])
+p_high   = request.security(syminfo.tickerid, htf_res, high[1])
+p_low    = request.security(syminfo.tickerid, htf_res, low[1])
+p_close  = request.security(syminfo.tickerid, htf_res, close[1])
+p_time   = request.security(syminfo.tickerid, htf_res, time[1])
+p_time_c = request.security(syminfo.tickerid, htf_res, time_close[1])
+
+// --- AFFICHAGE DYNAMIQUE DES NIVEAUX (PDH/PDL, BSL/SSL) & HTF CANDLES ---
+var box pdh_box = na
+var box pdl_box = na
+var box bsl_box = na
+var box ssl_box = na
+var box htf_container = na
+var box prev_htf_body = na
+var box prev_htf_wick = na
+var box cur_htf_body = na
+var box cur_htf_wick = na
+
+if barstate.islast
+    box.delete(pdh_box)
+    box.delete(pdl_box)
+    box.delete(bsl_box)
+    box.delete(ssl_box)
+    box.delete(htf_container)
+    box.delete(prev_htf_body)
+    box.delete(prev_htf_wick)
+    box.delete(cur_htf_body)
+    box.delete(cur_htf_wick)
+    
+    int start_x = nz(day_start_idx, 0)
+    
+    // PDH — ligne en tirets depuis le sommet exact d'hier, label à gauche au-dessus
+    if show_pdh and not na(pdh)
+        pdh_box := box.new(left = nz(pdh_x, start_x), top = pdh, right = bar_index, bottom = pdh, border_color = pdh_pdl_color, border_width = 1, border_style = line.style_dashed, bgcolor = color(na), text = "PDH", text_size = size.small, text_color = pdh_pdl_color, text_valign = "bottom", text_halign = "left")
+                             
+    // PDL — ligne en tirets depuis le creux exact d'hier, label à gauche en-dessous
+    if show_pdl and not na(pdl)
+        pdl_box := box.new(left = nz(pdl_x, start_x), top = pdl, right = bar_index, bottom = pdl, border_color = pdh_pdl_color, border_width = 1, border_style = line.style_dashed, bgcolor = color(na), text = "PDL", text_size = size.small, text_color = pdh_pdl_color, text_valign = "top", text_halign = "left")
+                             
+    // BUYSIDE LIQUIDITY — ligne depuis le dernier swing high actif, label à gauche au-dessus
+    if show_bsl and not na(last_high_val)
+        bsl_box := box.new(left = last_high_idx, top = last_high_val, right = bar_index, bottom = last_high_val, border_color = bsl_color, border_width = 1, border_style = line.style_solid, bgcolor = color(na), text = "BUYSIDE LIQUIDITY", text_size = size.small, text_color = bsl_color, text_valign = "bottom", text_halign = "left")
+                             
+    // SELLSIDE LIQUIDITY — ligne depuis le dernier swing low actif, label à gauche en-dessous
+    if show_ssl and not na(last_low_val)
+        ssl_box := box.new(left = last_low_idx, top = last_low_val, right = bar_index, bottom = last_low_val, border_color = ssl_color, border_width = 1, border_style = line.style_solid, bgcolor = color(na), text = "SELLSIDE LIQUIDITY", text_size = size.small, text_color = ssl_color, text_valign = "top", text_halign = "left")
+
+    // Dessiner le widget flottant des bougies HTF (CRT) dans le futur
+    if show_htf_candles and htf_valid and not na(c_open) and not na(p_open)
+        // 1. Calcul des extrêmes verticaux pour le conteneur
+        float box_top = math.max(p_high, c_high)
+        float box_bottom = math.min(p_low, c_low)
+        
+        // Résolution textuelle pour le titre du conteneur
+        string tf_name = htf_res == "60" ? "H1" : htf_res == "240" ? "H4" : htf_res == "D" ? "DAILY" : htf_res == "W" ? "WEEKLY" : "HTF"
+        
+        // 2. Tracé du conteneur en tirets gris
+        htf_container := box.new(left = bar_index + 3, top = box_top, right = bar_index + 16, bottom = box_bottom,
+                                 border_color = color.new(color.gray, 60), border_width = 1, border_style = line.style_dashed,
+                                 bgcolor = color(na), text = tf_name, text_size = size.small, text_color = color.new(color.gray, 50),
+                                 text_valign = "top", text_halign = "left")
+                                 
+        // 3. Bougie précédente (clôturée)
+        color p_color = p_close >= p_open ? htf_bull_color : htf_bear_color
+        color p_border = color.new(p_color, 20)
+        
+        // Mèche précédente (centrée à bar_index + 6)
+        prev_htf_wick := box.new(left = bar_index + 6, top = p_high, right = bar_index + 6, bottom = p_low,
+                                 border_color = htf_wick_color, border_width = 1, border_style = line.style_solid, bgcolor = color(na))
+                                 
+        // Corps précédent (largeur 3 bars, de +5 à +7)
+        prev_htf_body := box.new(left = bar_index + 5, top = math.max(p_open, p_close), right = bar_index + 7, bottom = math.min(p_open, p_close),
+                                 border_color = p_border, border_width = 1, border_style = line.style_solid, bgcolor = p_color)
+                                 
+        // 4. Bougie courante (en cours)
+        color c_color = c_close >= c_open ? htf_bull_color : htf_bear_color
+        color c_border = color.new(c_color, 20)
+        
+        // Mèche courante (centrée à bar_index + 12)
+        cur_htf_wick := box.new(left = bar_index + 12, top = c_high, right = bar_index + 12, bottom = c_low,
+                                 border_color = htf_wick_color, border_width = 1, border_style = line.style_solid, bgcolor = color(na))
+                                 
+        // Corps courant (largeur 3 bars, de +11 à +13)
+        cur_htf_body := box.new(left = bar_index + 11, top = math.max(c_open, c_close), right = bar_index + 13, bottom = math.min(c_open, c_close),
+                                 border_color = c_border, border_width = 1, border_style = line.style_solid, bgcolor = c_color)

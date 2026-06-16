@@ -1,0 +1,207 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+@import 'tailwindcss';
+@import '../../vendor/livewire/flux/dist/flux.css';
+
+@source "../views";
+@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
+@source '../../vendor/livewire/flux-pro/stubs/**/*.blade.php';
+@source '../../vendor/livewire/flux/stubs/**/*.blade.php';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+    --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif;
+
+    --color-zinc-50: #fafafa;
+    --color-zinc-100: #f5f5f5;
+    --color-zinc-200: #e5e5e5;
+    --color-zinc-300: #d4d4d4;
+    --color-zinc-400: #a3a3a3;
+    --color-zinc-500: #737373;
+    --color-zinc-600: #525252;
+    --color-zinc-700: #404040;
+    --color-zinc-800: #262626;
+    --color-zinc-900: #171717;
+    --color-zinc-950: #0a0a0a;
+
+    --color-accent: #facc15;
+    --color-accent-content: #000000;
+    --color-accent-foreground: #ffffff;
+    
+    --color-crm-yellow: #facc15;
+    --color-crm-yellow-hover: #eab308;
+    --color-crm-yellow-light: #fef08a;
+    --color-crm-dark-bg: #0c0c0e;
+    --color-crm-dark-card: #151518;
+    --color-crm-border: #222227;
+}
+
+@layer theme {
+    .dark {
+        --color-accent: #facc15;
+        --color-accent-content: #000000;
+        --color-accent-foreground: #ffffff;
+    }
+}
+
+@layer base {
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-zinc-800, currentColor);
+    }
+    
+    body {
+        font-family: 'Outfit', sans-serif;
+        overscroll-behavior: none;
+    }
+    
+    html {
+        overscroll-behavior: none;
+    }
+}
+
+[data-flux-field] {
+    @apply grid gap-2;
+}
+
+[data-flux-label] {
+    @apply  !mb-0 !leading-tight;
+}
+
+input:focus[data-flux-control],
+textarea:focus[data-flux-control],
+select:focus[data-flux-control] {
+    @apply outline-hidden ring-2 ring-accent ring-offset-2 ring-offset-accent-foreground;
+}
+
+/* Custom CSS classes for page loader */
+.crm-loader-overlay {
+    position: fixed;
+    inset: 0;
+    background-color: #000000;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.8s;
+}
+
+.crm-loader-overlay.hidden-loader {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.crm-logo-pulse {
+    animation: crmLogoPulse 2s infinite ease-in-out;
+}
+
+@keyframes crmLogoPulse {
+    0%, 100% {
+        transform: scale(0.95);
+        filter: drop-shadow(0 0 10px rgba(250, 204, 21, 0.2));
+    }
+    50% {
+        transform: scale(1.05);
+        filter: drop-shadow(0 0 25px rgba(250, 204, 21, 0.6));
+    }
+}
+
+.crm-progress-bar-container {
+    width: 240px;
+    height: 4px;
+    background-color: #1c1c21;
+    border-radius: 9999px;
+    overflow: hidden;
+    margin-top: 2rem;
+    position: relative;
+}
+
+.crm-progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background-color: #facc15;
+    border-radius: 9999px;
+    transition: width 0.1s ease-out;
+}
+
+.crm-glow-yellow {
+    box-shadow: 0 0 15px rgba(250, 204, 21, 0.15);
+}
+
+.crm-glow-yellow-hover:hover {
+    box-shadow: 0 0 25px rgba(250, 204, 21, 0.35);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+::-webkit-scrollbar-track {
+    background: #0c0c0e;
+}
+::-webkit-scrollbar-thumb {
+    background: #222227;
+    border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #33333b;
+}
+
+/* Transitions for Dashboard Skeleton Screen */
+.crm-skeleton-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    z-index: 10;
+    background-color: #000000;
+    opacity: 1;
+    transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.6s;
+}
+
+.crm-skeleton-container.hidden-skeleton {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.crm-dashboard-wrapper {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.6s;
+}
+
+.crm-dashboard-wrapper.visible-dashboard {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* Hide scrollbar utility */
+.scrollbar-hide::-webkit-scrollbar {
+    display: none;
+}
+.scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Animations */
+@keyframes slide-in-right {
+    from {
+        transform: translateX(100%);
+    }
+    to {
+        transform: translateX(0);
+    }
+}
+
+.animate-slide-in-right {
+    animation: slide-in-right 0.3s ease-out;
+}
+
