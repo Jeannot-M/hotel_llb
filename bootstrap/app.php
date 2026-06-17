@@ -19,4 +19,12 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (TokenMismatchException $e, Request $request) {
             return redirect()->route('login')->with('status', 'Votre session a expiré. Veuillez vous reconnecter.');
         });
-    })->create();
+    })->create()
+    ->tap(function ($app) {
+        // On Vercel, the filesystem is read-only except /tmp.
+        // The VERCEL env variable is automatically set to '1' by Vercel.
+        if (getenv('VERCEL')) {
+            $app->useStoragePath('/tmp/storage');
+        }
+    });
+
