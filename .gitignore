@@ -5,6 +5,7 @@
 /storage/*.key
 /storage/pail
 /vendor
+/bootstrap/cache/*.php
 .DS_Store
 .env
 .env.backup
