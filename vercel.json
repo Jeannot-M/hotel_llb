@@ -22,5 +22,7 @@
       "src": "/(.*)",
       "dest": "/api/index.php"
     }
-  ]
+  ],
+  "buildCommand": "echo 'Assets pre-compiled locally, skipping Vite build'",
+  "outputDirectory": "public"
 }
