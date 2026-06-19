@@ -21,11 +21,6 @@ $app = Application::configure(basePath: dirname(__DIR__))
         });
     })->create();
 
-// On Vercel, the filesystem is read-only except /tmp.
-// The VERCEL env variable is automatically set to '1' by Vercel.
-if (getenv('VERCEL')) {
-    $app->useStoragePath('/tmp/storage');
-}
 
 return $app;
 
